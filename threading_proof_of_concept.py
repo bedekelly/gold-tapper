@@ -43,18 +43,12 @@ def number_updater():
 
 def run_update_window_thread(arg):
     global RUN_UPDATE_WINDOW_THREAD
-    if arg:
-        RUN_UPDATE_WINDOW_THREAD = True
-    else:
-        RUN_UPDATE_WINDOW_THREAD = False
+    RUN_UPDATE_WINDOW_THREAD = arg
 
 
 def run_update_number_thread(arg):
     global RUN_UPDATE_NUMBER_THREAD
-    if arg:
-        RUN_UPDATE_NUMBER_THREAD = True
-    else:
-        RUN_UPDATE_NUMBER_THREAD = False
+    RUN_UPDATE_NUMBER_THREAD = arg
 
 
 def main(stdscr):
@@ -87,9 +81,6 @@ def main(stdscr):
             quit()
         elif key == " ":
             change_count(10000)
-
-
-
 
 
 curses.wrapper(main)

@@ -13,7 +13,7 @@ as published by Sam Hocevar. See the COPYING file for more details.
 
 import curses
 import curses.panel
-from time import sleep, gmtime, strftime
+import time
 import threading
 from threading import Thread
 from collections import namedtuple
@@ -37,20 +37,6 @@ class Credits:
         stdscr.getkey()
 
 
-class Refresher:
-    def __init__(self):
-        self.keep_updating = True
-    def refresher(self):
-        while self.keep_updating:
-            sleep(0.01)
-            curses.panel.update_panels()
-    def start_refreshing(self):
-        refresh_thread = Thread(target = self.refresher)
-        refresh_thread.start()
-    def stop_refreshing(self):
-        self.keep_updating = False
-
-
 class Menu:
     def __init__(self, headline, CENTER, indent=0):
         self.headline = headline
@@ -60,8 +46,7 @@ class Menu:
         self.indent = indent
 
     def print_all(self, stdscr, CENTER):
-        stdscr.addstr(self.headline_ypos, self.headline_xpos,
-            self.headline)
+        stdscr.addstr(self.headline_ypos, self.headline_xpos, self.headline)
         for index, item in enumerate(self.list_items):
             item_hpos = get_horizontal_position(item.text, CENTER)
             stdscr.addstr(self.headline_ypos + index + 2, item_hpos,
@@ -86,125 +71,60 @@ class Menu:
             return self.text
 
 
-class Accumulator:
-    def __init__(self, value=0, incr_value=0, update_interval=0.01,
-    run_update=True):
-        self.value = value
-        self.incr_value = incr_value
-        self.update_interval = update_interval
-        self.run_update = run_update
-
-    def change_incr_value(self, value):
-        self.incr_value = value
-
-    def add(self, value):
-        self.value += value
-
-    def start_updating(self, object_to_update):
-        thread = Thread(target = self.updater, args=(object_to_update,))
-        thread.start()
-
-
-    def updater(self, object_to_update):
-        while self.run_update:
-            sleep(self.update_interval)
-            self.value += self.incr_value
-            if round(object_to_update.value) != round(self.value):
-                object_to_update.update_value(self.value)
-
-    def stop_updating(self):
-        self.run_update = False
-
-
-    def __cmp__(self, other):
-        if self.value < other:
-            return -1
-        elif self.value > other:
-            return 1
-        elif self.value == other:
-            return 0
-
-
-    def __str__(self):
-        return str(self.value)
-
-
 class HUDPanel:
-    def __init__(self, dimensions, init_value, unit_string, 
-        incr_per_second, update_interval, accumulator, wait=0):
+    def __init__(self, dimensions, init_value, unit_string, incr_per_second,
+    update_interval, hidden=True):
         self.window = curses.newwin(*dimensions)
         self.panel = curses.panel.new_panel(self.window)
         self.value = init_value
-        self.unit_string = unit_string
+        self.unit_string = unit
         self.incr_per_second = incr_per_second
         self.update_interval = update_interval
-        self.run_update = True
-        self.needs_update = True
-        self.accumulator = accumulator
-        self.wait = wait
+        self.hidden = hidden
         self.window.border(0)
 
     def update_value(self, value):
-        self.value = value
+        self.value += value
         self.needs_update = True
 
     def toggle_hidden(self):
-        if self.panel.hidden():
-            # log("attempting to show panel")
-            self.panel.show()
+        if self.panel.hidden:
+            self.show()
         else:
-            # log("attempting to hide panel")
-            self.panel.hide()
+            self.hide()
 
+    def hide(self):
+        self.panel.hide()
+
+    def show(self):
+        self.panel.show()
 
     def updater(self):
-        # self.window.clear()
-        # self.window.addstr(2,2,"{}: {}".format(
-        # self.unit_string, round(self.value)))
-        # self.window.border(0)
-        # self.window.refresh()
         while 1:
             if self.run_update:
-                # curses.panel.update_panels()
                 sleep(self.update_interval)
-                if self.panel.hidden():
-                    # log("Panel is hidden")
-                    pass
-                else:
-                    # log("Panel is shown")
-                    if self.needs_update:
-                        sleep(self.wait)
-                        self.window.clear()
-                        self.window.addstr(2,2,"{}: {}".format(
-                            self.unit_string, round(self.value)))
-                        self.window.border(0)
-                        self.window.refresh()
-                        self.needs_update = False
-
-
+                if self.needs_update and not self.hidden:
+                    self.window.clear()
+                    self.window.addstr(2,2,self.unit 
+                        + ": {}".format(self.value))
+                    self.window.refresh()
+                    self.needs_update = False
             else:
-                # log("Stopped updating window " + self.unit_string)
                 return
 
     def start_updating(self):
-        self.run_update = True
         thread = Thread(target = self.updater)
         thread.start()
-
 
     def stop_updating(self):
         self.run_update = False
 
-
-def log(message):
-    with open("log", "a") as logfile:
-        logfile.write(message + "\n")
 
 
 def get_dimensions(item, stdscr):
     if item == "gold":
         lines = 5
-        columns = 25
+        columns = 20
         _, H_MAX = stdscr.getmaxyx()
         y = 1
         x = H_MAX - columns - 2
@@ -234,69 +154,40 @@ def get_pos_consts(stdscr):
     return CENTER
 
 
-def setup_panels(stdscr):
-    panels_refresher = Refresher()
-    panels_refresher.start_refreshing()
-    gold = Accumulator(incr_value=0)
-    tapped = Accumulator(incr_value=0)
-    tapped_panel_data = {'dimensions': get_dimensions("tapped", stdscr),
-                         'init_value': 0,
-                         'unit_string': "Total Tapped",
-                         'incr_per_second': 0,
-                         'update_interval': 0.01,
-                         'accumulator': tapped}
-    gold_panel_data = {'dimensions': get_dimensions("gold", stdscr),
-                       'init_value': 0,
-                       'unit_string': "Gold Nuggets",
-                       'incr_per_second': 1,
-                       'update_interval': 0.01,
-                       'accumulator': gold,
-                       'wait': 0.04}
+def setup_panels():
+    tapped_panel_data = {dimensions: get_dimensions("tapped", stdscr),
+                         init_value: 0,
+                         unit_string: "Total Tapped",
+                         incr_per_second: 0,
+                         update_interval: 0.01,
+                         hidden: False}
+    gold_panel_data = {dimensions: get_dimensions("gold", stdscr),
+                       init_value: 0,
+                       unit_string: "Gold Pieces",
+                       incr_per_second: 1,
+                       update_interval: 0.01,
+                       hidden: False}
 
     gold_panel = HUDPanel(**gold_panel_data)
     tapped_panel = HUDPanel(**tapped_panel_data)  
     tapped_panel.start_updating()
     gold_panel.start_updating()
-    gold.start_updating(gold_panel)
-    tapped.start_updating(tapped_panel)
-    return tapped, gold, tapped_panel, gold_panel, panels_refresher
+    return tapped_panel, gold_panel
 
 
 def play_game(stdscr):
-    stdscr.clear()
-    data = tuple(setup_panels(stdscr))
-    tapped, gold, tapped_panel, gold_panel, panels_refresher = data
+    tapped_panel, gold_panel = setup_panels()
     while True:
         key = stdscr.getkey()
         if key == "q":
             gold_panel.stop_updating()
-            gold_panel.panel.hide()
             tapped_panel.stop_updating()
-            tapped_panel.panel.hide()
-            gold.stop_updating()
-            tapped.stop_updating()
-            panels_refresher.stop_refreshing()
-            stdscr.clear()
+            sleep(0.1)
             return
         elif key == "g":
             gold_panel.toggle_hidden()
         elif key == "t":
             tapped_panel.toggle_hidden()
-        elif key == " ":
-            gold.add(1)
-            tapped.add(1)
-        elif key == "b":
-            if gold.value >= 10:
-                if 1 > gold.incr_value > 0:
-                    gold.incr_value *= 1.1
-                else:
-                    gold.incr_value += 0.01
-                gold.value -= 10
-
-
-def print_credits(stdscr):
-    credits = Credits(stdscr)
-    credits.display(stdscr)
 
 
 def startup_menu(stdscr, CENTER):
@@ -305,7 +196,7 @@ def startup_menu(stdscr, CENTER):
     # Generate menu options
     menu = Menu(headline, CENTER, indent=4)
     menu.playgame = menu.MenuItem("Play Game", func=play_game)
-    menu.credits = menu.MenuItem("Credits", func=print_credits)
+    menu.credits = menu.MenuItem("Credits", func=self.display)
     menu.exit = menu.MenuItem("Exit", func=quit)
     menu.list_items = [menu.playgame, menu.credits, menu.exit]
 
@@ -363,21 +254,15 @@ def setup_stdscr(stdscr):
 
 
 def main(stdscr):
-    # log("\n===== Log from {} =====\n".format(
-    #     strftime("%Y-%m-%d %H:%M:%S", gmtime())))
-
-    # Get formatting right, and set up panels etc
     stdscr, CENTER = setup_stdscr(stdscr)
+    # Execute
     while True:
         choice = startup_menu(stdscr, CENTER)
         if choice.func is not None:
-            if choice.func == quit:
+            if choice.func != quit:
+                choice(stdscr, CENTER)
+            else:
                 quit()
-            elif choice.func == print_credits:
-                print_credits(stdscr)
-            elif choice.func == play_game:
-                play_game(stdscr)
-                stdscr.clear()
         else:
             quit()
 
