@@ -17,9 +17,17 @@ from time import sleep, gmtime, strftime
 import threading
 from threading import Thread
 from collections import namedtuple
+ShopItem = namedtuple("ShopItem", ["name", "price", "quantity"])
 
 
-class Credits:
+
+class Shop(object):
+    def __init__(self, item_prices):
+        pass
+
+
+
+class Credits(object):
     def __init__(self, stdscr):
         try:
             self.text = open("credits", "r").readlines()
@@ -37,7 +45,7 @@ class Credits:
         stdscr.getkey()
 
 
-class Refresher:
+class Refresher(object):
     def __init__(self):
         self.keep_updating = True
     def refresher(self):
@@ -51,7 +59,7 @@ class Refresher:
         self.keep_updating = False
 
 
-class Menu:
+class Menu(object):
     def __init__(self, headline, CENTER, indent=0):
         self.headline = headline
         self.list_items = []
@@ -86,7 +94,7 @@ class Menu:
             return self.text
 
 
-class Accumulator:
+class Accumulator(object):
     def __init__(self, value=0, incr_value=0, update_interval=0.01,
     run_update=True):
         self.value = value
@@ -115,7 +123,6 @@ class Accumulator:
     def stop_updating(self):
         self.run_update = False
 
-
     def __cmp__(self, other):
         if self.value < other:
             return -1
@@ -124,15 +131,15 @@ class Accumulator:
         elif self.value == other:
             return 0
 
-
     def __str__(self):
         return str(self.value)
 
 
-class HUDPanel:
+class HUDPanel(object):
     def __init__(self, dimensions, init_value, unit_string, 
-        incr_per_second, update_interval, accumulator, wait=0):
+        incr_per_second, update_interval, accumulator, wait=0, color=0):
         self.window = curses.newwin(*dimensions)
+        self.window.bkgd(' ', curses.color_pair(color))
         self.panel = curses.panel.new_panel(self.window)
         self.value = init_value
         self.unit_string = unit_string
@@ -152,9 +159,14 @@ class HUDPanel:
         if self.panel.hidden():
             # log("attempting to show panel")
             self.panel.show()
+            curses.panel.update_panels()
+            curses.doupdate()
         else:
             # log("attempting to hide panel")
             self.panel.hide()
+            curses.panel.update_panels()
+            curses.doupdate()
+
 
 
     def updater(self):
@@ -196,12 +208,29 @@ class HUDPanel:
         self.run_update = False
 
 
+class MainPanel(object):
+    def __init__(self, text, header, window):
+        self.text = text
+        self.window = window
+        self.header = header
+        self.window.border(0)
+        self.window.bkgd(0)
+        self.window.refresh()
+    def update_text(text):
+        self.text = text
+        self.window.refresh()
+    def display(self):
+        for line in self.header:
+            self.window.addstr(line)
+        self.window.refresh()
+
+
 def log(message):
     with open("log", "a") as logfile:
-        logfile.write(message + "\n")
+        logfile.write(str(message) + "\n")
 
 
-def get_dimensions(item, stdscr):
+def get_dimensions(item, stdscr, CENTER):
     if item == "gold":
         lines = 5
         columns = 25
@@ -211,9 +240,15 @@ def get_dimensions(item, stdscr):
 
     elif item == "tapped":
         lines = 5
-        columns = 21
+        columns = 25
         y = 1
         x = 2
+
+    elif item == "shop":
+        lines = 10
+        columns = 30
+        y = 1
+        x = 1
 
     return lines, columns, y, x
 
@@ -234,24 +269,26 @@ def get_pos_consts(stdscr):
     return CENTER
 
 
-def setup_panels(stdscr):
+def setup_panels(stdscr, CENTER):
     panels_refresher = Refresher()
     panels_refresher.start_refreshing()
     gold = Accumulator(incr_value=0)
     tapped = Accumulator(incr_value=0)
-    tapped_panel_data = {'dimensions': get_dimensions("tapped", stdscr),
+    tapped_panel_data = {'dimensions': get_dimensions("tapped", stdscr, CENTER),
                          'init_value': 0,
                          'unit_string': "Total Tapped",
                          'incr_per_second': 0,
                          'update_interval': 0.01,
-                         'accumulator': tapped}
-    gold_panel_data = {'dimensions': get_dimensions("gold", stdscr),
+                         'accumulator': tapped,
+                         'color': 1}
+    gold_panel_data = {'dimensions': get_dimensions("gold", stdscr, CENTER),
                        'init_value': 0,
                        'unit_string': "Gold Nuggets",
                        'incr_per_second': 1,
                        'update_interval': 0.01,
                        'accumulator': gold,
-                       'wait': 0.04}
+                       'wait': 0.04,  # Stops curses having a cow
+                       'color': 2}
 
     gold_panel = HUDPanel(**gold_panel_data)
     tapped_panel = HUDPanel(**tapped_panel_data)  
@@ -262,13 +299,59 @@ def setup_panels(stdscr):
     return tapped, gold, tapped_panel, gold_panel, panels_refresher
 
 
-def play_game(stdscr):
+def buy_item(shop_items, menu_id, gold, current_items):
+    menu_id -= 1  # Adjust for zero-indexed list.
+    try:
+        item = shop_items[menu_id]
+    except IndexError:
+        return shop_items, gold, current_items
+    
+
+
+    return shop_items, gold, current_items
+
+
+def play_game(stdscr, CENTER):
     stdscr.clear()
-    data = tuple(setup_panels(stdscr))
+
+    # Setup panels etc. 
+    data = tuple(setup_panels(stdscr, CENTER))
     tapped, gold, tapped_panel, gold_panel, panels_refresher = data
+    current_items = []  # list of strings for display
+
+    # Setup shop
+    shop_header = ["|------------------------------------------------|",
+                   "|                      SHOP                      |",
+                   "|------------------------------------------------|",
+                   "|          Item          |         Price         |",
+                   "|------------------------|-----------------------|"]
+    x_coord = 0
+    shop_items = [ShopItem("Newbie Dwarf", 50, 1)]
+    for index, line in enumerate(shop_header):
+        # Print centred header for shop
+        stdscr.addstr(8 + index, CENTER.x_coordinate - len(line)//2, line)
+        new_y = 8 + index
+        if CENTER.x_coordinate - len(line) // 2 > x_coord:
+            x_coord = CENTER.x_coordinate - len(line) // 2
+
+    for index, item in enumerate(shop_items):
+        # Ugly, but formats correctly for decent screen sizes.
+        stdscr.addstr(new_y + index + len(shop_items), x_coord,
+            "|     " 
+            + (item.name + " ({})".format(item.quantity)).ljust(19)
+            + "|"
+            + str(item.price).center(23)
+            + "|"
+            )
+
+    stdscr.border(0)
+    stdscr.refresh()
+
+    # Main input loop
     while True:
         key = stdscr.getkey()
         if key == "q":
+            # Stop everything and quit
             gold_panel.stop_updating()
             gold_panel.panel.hide()
             tapped_panel.stop_updating()
@@ -277,21 +360,33 @@ def play_game(stdscr):
             tapped.stop_updating()
             panels_refresher.stop_refreshing()
             stdscr.clear()
+            sleep(.1)
             return
         elif key == "g":
+            # Show/hide gold panel
             gold_panel.toggle_hidden()
+            curses.panel.update_panels()
         elif key == "t":
+            # Show/hide gold panel
             tapped_panel.toggle_hidden()
+            curses.panel.update_panels()
         elif key == " ":
+            # Increment gold on spacebar tap
             gold.add(1)
             tapped.add(1)
-        elif key == "b":
-            if gold.value >= 10:
-                if 1 > gold.incr_value > 0:
-                    gold.incr_value *= 1.1
-                else:
-                    gold.incr_value += 0.01
-                gold.value -= 10
+        # elif key == "b":
+        #     if gold.value >= 10:
+        #         gold.incr_value += 0.01
+        #         gold.value -= 10
+        elif key in "123456789":
+            # Buy item from shop if player has gold
+            shop_items, gold, current_items = buy_item(shop_items, int(key), gold, current_items)
+
+        # Log current items each cycle
+        try:
+            log("Current items: [{}]".format(", ".join(current_items)))
+        except TypeError:
+            log("Current items: Empty")
 
 
 def print_credits(stdscr):
@@ -363,8 +458,8 @@ def setup_stdscr(stdscr):
 
 
 def main(stdscr):
-    # log("\n===== Log from {} =====\n".format(
-    #     strftime("%Y-%m-%d %H:%M:%S", gmtime())))
+    log("\n===== Log from {} =====\n".format(
+        strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
     # Get formatting right, and set up panels etc
     stdscr, CENTER = setup_stdscr(stdscr)
@@ -376,7 +471,7 @@ def main(stdscr):
             elif choice.func == print_credits:
                 print_credits(stdscr)
             elif choice.func == play_game:
-                play_game(stdscr)
+                play_game(stdscr, CENTER)
                 stdscr.clear()
         else:
             quit()
@@ -384,3 +479,4 @@ def main(stdscr):
 if __name__ == "__main__":
     curses.wrapper(main)
     # General error trapping, won't destroy terminal if errors occur
+    # (Apparently some errors still break everything, meh)
